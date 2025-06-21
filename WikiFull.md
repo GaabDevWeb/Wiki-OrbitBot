@@ -1,1216 +1,1227 @@
-        # 🛠️ Wiki Técnica OrbitBot (Nível Engenharia)
-
-        > **Manual técnico avançado do OrbitBot: arquitetura, algoritmos, fluxos, decisões e exemplos reais.**
-
-        ---
-
-        ## Sumário Ultra Detalhado
-
-        1. [Introdução e Filosofia de Design](#introducao-e-filosofia-de-design)
-        2. [Arquitetura Geral e Diagrama de Módulos](#arquitetura-geral-e-diagrama-de-modulos)
-        3. [Ciclo de Vida de uma Mensagem](#ciclo-de-vida-de-uma-mensagem)
-        4. [Fluxo Interno: Texto vs Áudio](#fluxo-interno-texto-vs-audio)
-        5. [Estrutura dos Módulos](#estrutura-dos-modulos)
-        6. [Exemplo: Caminho Completo de uma Mensagem](#exemplo-caminho-completo-de-uma-mensagem)
-        7. [Edge Cases e Resiliência](#edge-cases-e-resiliencia)
-        8. [Detalhes de Implementação: Código Real](#detalhes-de-implementacao-codigo-real)
-        9. [Banco de Dados e ORM](#banco-de-dados-e-orm)
-        10. [Próximos Blocos: Fila, IA, Plugins, etc.](#proximos-blocos)
-        11. [Sistema de Fila de Mensagens](#sistema-de-fila-de-mensagens)
-        12. [Sistema de IA Avançado](#sistema-de-ia-avancado)
-        13. [Próximos Blocos](#proximos-blocos)
-        14. [Sistema de Plugins Avançado](#sistema-de-plugins-avancado)
-        15. [Próximos Blocos](#proximos-blocos)
-        16. [Sistema de Áudio: Integração Python, Estratégias, Timeouts, Fallbacks](#sistema-de-audio-integracao-python-estrategias-timeouts-fallbacks)
-        17. [Tratamento de Erros: Propagação, Auto-Recuperação, Circuit Breaker](#tratamento-de-erros-propagacao-auto-recuperacao-circuit-breaker)
-        18. [Testes: Unitários, Integração, Stress, Coverage](#testes-unitarios-integracao-stress-coverage)
-        19. [DevOps: CI/CD, Observabilidade, Monitoramento](#devops-cicd-observabilidade-monitoramento)
-        20. [Implementação de Testes Automatizados](#implementacao-de-testes-automatizados)
-
-        ---
-
-        ## 1. Introdução e Filosofia de Design
-
-        O OrbitBot foi projetado seguindo princípios de **engenharia de software moderna**, com foco em:
-
-        - **Modularidade**: Cada funcionalidade é um módulo independente
-        - **Resiliência**: Sistema nunca trava, sempre há fallback
-        - **Performance**: Otimizações em múltiplas camadas
-        - **Observabilidade**: Logs detalhados e métricas em tempo real
-        - **Escalabilidade**: Arquitetura preparada para crescimento
-
-        ### Fluxo Interno de Mensagens
-
-        ```mermaid
-        sequenceDiagram
-            participant W as WhatsApp
-            participant B as Bot Core
-            participant Q as Message Queue
-            participant A as Audio Processor
-            participant I as AI System
-            participant D as Database
-            participant H as Humanizer
-
-            W->>B: Mensagem Recebida
-            B->>B: Validação Inicial
-            alt É Áudio
-                B->>A: Processa Áudio
-                A->>A: Transcrição Whisper
-                A->>I: Melhoria com IA
-                A->>B: Texto Processado
-            end
-            B->>Q: Adiciona à Fila
-            Q->>D: Busca Histórico
-            D->>Q: Retorna Contexto
-            Q->>I: Gera Resposta
-            I->>H: Humaniza Resposta
-            H->>W: Envia Mensagem
-            Q->>D: Atualiza Histórico
-        ```
-
-        ### Estrutura dos Módulos
-
-        ```mermaid
-        graph TD
-            subgraph "Core Modules"
-                A[bot.js] --> B[queue.js]
-                B --> C[openai.js]
-                C --> D[aiConfig.js]
-            end
-            
-            subgraph "Processing Modules"
-                E[audioProcessor.js] --> F[humanizer.js]
-                G[pluginSystem.js] --> H[performance.js]
-            end
-            
-            subgraph "Data Layer"
-                I[database/db.js] --> J[backup.js]
-                K[logger.js] --> L[treinamento.js]
-            end
-            
-            A --> E
-            A --> G
-            A --> I
-            B --> K
-            C --> H
-            D --> L
-        ```
-
-        ---
-
-        ## 2. Arquitetura Geral e Diagrama de Módulos
-
-        O OrbitBot é composto por múltiplos módulos, cada um responsável por um domínio:
-
-        - **bot.js**: Orquestra o ciclo de vida, integra todos os módulos
-        - **audioProcessor.js**: Processamento de áudio, integração Python, melhoria IA
-        - **aiConfig.js**: Configuração dinâmica de IA, personalidades, contexto
-        - **pluginSystem.js**: Plugins, hooks, middleware
-        - **queue.js**: Fila de mensagens, retries, controle de concorrência
-        - **backup.js**: Backup, restauração, logs
-        - **logger.js**: Logging estruturado, métricas
-        - **performance.js**: Monitoramento, métricas
-        - **database/db.js**: Operações SQLite, queries parametrizadas
-
-        ### Diagrama de Dependências
-
-        ```mermaid
-        graph TD
-            A[bot.js] -->|usa| B[audioProcessor.js]
-            A -->|usa| C[aiConfig.js]
-            A -->|usa| D[pluginSystem.js]
-            A -->|usa| E[queue.js]
-            A -->|usa| F[backup.js]
-            A -->|usa| G[logger.js]
-            A -->|usa| H[performance.js]
-            A -->|usa| I[database/db.js]
-            B -->|usa| I
-            D -->|usa| G
-            F -->|usa| I
-            E -->|usa| G
-            C -->|usa| G
-        ```
-
-        - **Observação:** Não há dependências circulares. Cada módulo pode ser testado isoladamente.
-
-        ---
-
-        ## 3. Ciclo de Vida de uma Mensagem
-
-        ### 3.1. Recepção
-        - O OrbitBot utiliza o `venom-bot` para escutar mensagens do WhatsApp.
-        - Cada mensagem recebida dispara o evento `onMessage`.
-
-        ### 3.2. Classificação
-        - O tipo da mensagem é inspecionado: texto, áudio, comando admin, etc.
-        - Mensagens de áudio são processadas imediatamente pelo `audioProcessor`.
-        - Mensagens de texto são enfileiradas na `queue`.
-        - Comandos admin (prefixo `/`) são processados imediatamente se o número for admin.
-
-        ### 3.3. Processamento
-        - Mensagens na fila são processadas em ordem FIFO.
-        - O histórico do cliente é atualizado antes de qualquer processamento IA.
-        - O contexto da conversa é recuperado para fornecer contexto à IA.
-        - Plugins podem interceptar antes/depois do processamento.
-
-        ### 3.4. Geração de Resposta
-        - O módulo de IA (`openai.js` + `aiConfig.js`) gera a resposta baseada no histórico, personalidade e contexto.
-        - A resposta pode ser modificada por plugins (ex: auto response, sentiment analysis).
-
-        ### 3.5. Humanização e Envio
-        - A resposta é humanizada (simulação de digitação, delays, chunking inteligente).
-        - A resposta é enviada ao usuário via WhatsApp.
-        - O histórico é atualizado com a resposta.
-
-        ### 3.6. Pós-processamento
-        - Métricas de performance são atualizadas.
-        - Logs detalhados são gerados.
-        - Plugins podem executar hooks pós-mensagem.
-
-        ---
-
-        ## 4. Fluxo Interno: Texto vs Áudio
-
-        ### 4.1. Texto
-        1. Recebido pelo `venom-bot`
-        2. Enfileirado em `queue`
-        3. Processado sequencialmente
-        4. Histórico atualizado
-        5. IA chamada com contexto
-        6. Plugins/humanização
-        7. Resposta enviada
-
-        ### 4.2. Áudio
-        1. Recebido pelo `venom-bot`
-        2. Decriptado e salvo em `audios/`
-        3. Transcrição via Python (Whisper)
-        4. Melhoria da transcrição via IA (OpenRouter)
-        5. Transcrição tratada como mensagem de texto (segue fluxo normal)
-
-        #### Diagrama de Fluxo
-        ```mermaid
-        graph TD
-            A[Recebe Mensagem] --> B{É Áudio?}
-            B -->|Sim| C[Decripta e Salva]
-            C --> D[Transcreve Python]
-            D --> E[Melhora com IA]
-            E --> F[Processa como Texto]
-            B -->|Não| F
-            F --> G[Atualiza Histórico]
-            G --> H[IA e Plugins]
-            H --> I[Humanização]
-            I --> J[Envia Resposta]
-        ```
-
-        ---
-
-        ## 5. Estrutura dos Módulos
-
-        ### 5.1. bot.js
-        - Ponto de entrada do sistema
-        - Inicializa venom, listeners, fila, logger, performance
-        - Responsável por orquestrar o ciclo de vida completo
-
-        ### 5.2. audioProcessor.js
-        - Classe singleton
-        - Métodos principais:
-        - `processAudioMessage(client, message)`
-        - `transcribeAudio(filePath, ...)`
-        - `improveTranscriptionWithAI(transcription, userId)`
-        - Estratégias de melhoria: ultra_precise, contextual_aggressive, conservative_enhanced
-        - Estatísticas: totalProcessed, avgConfidence, improvementRate
-
-        ### 5.3. aiConfig.js
-        - Gerencia modelos, personalidades, contexto
-        - Métodos:
-        - `setPersonality`, `getPersonality`, `listPersonalities`
-        - `setModel`, `getModel`, `listModels`
-        - `detectAndAdaptContext`
-        - `generateConfig`
-        - Personalidades compostas: weights, adaptação dinâmica
-
-        ### 5.4. pluginSystem.js
-        - PluginSystem: registro, hooks, middleware
-        - Plugins padrão e customizados
-        - Hooks: beforeMessage, afterMessage, messageProcessed
-        - Métodos:
-        - `registerPlugin`, `togglePlugin`, `listPlugins`, `getPlugin`
-
-        ### 5.5. queue.js
-        - MessageQueue: EventEmitter
-        - Métodos:
-        - `addMessage`, `processQueue`, `getQueueSize`
-        - Retries exponenciais, eventos de erro
-
-        ### 5.6. backup.js
-        - BackupManager: backup manual/auto, restauração, logs
-        - Métodos:
-        - `createBackup`, `restoreBackup`, `deleteBackup`, `getBackupInfo`, `getCurrentBackupInfo`
-        - Limpeza automática, log em JSON
-
-        ### 5.7. logger.js
-        - Logger customizado: info, error, debug, performance, api, queue
-        - Integração com métricas do banco e áudio
-
-        ### 5.8. performance.js
-        - PerformanceMonitor: uptime, mensagens, erros, tempo médio, memória, CPU
-        - Loga métricas a cada 1min
-
-        ### 5.9. database/db.js
-        - SQLite3 puro, queries parametrizadas
-        - Métodos:
-        - `cadastrarCliente`, `buscarCliente`, `adicionarMensagem`, `buscarHistorico`, `buscarUltimasMensagens`
-
-        ---
-
-        ## 6. Exemplo: Caminho Completo de uma Mensagem
-
-        ### 6.1. Mensagem de Texto
-        ```plaintext
-        Usuário envia: "Oi, Orbit!"
-        ↓
-        venom.onMessage → bot.js
-        ↓
-        Verifica tipo: texto
-        ↓
-        queue.addMessage(message)
-        ↓
-        queue.processQueue()
-        ↓
-        Atualiza histórico (database)
-        ↓
-        Recupera contexto (aiConfig)
-        ↓
-        Gera resposta IA (openai.js)
-        ↓
-        Plugins (pluginSystem)
-        ↓
-        Humanização (humanizer.js)
-        ↓
-        client.sendText()
-        ↓
-        Atualiza histórico (resposta)
-        ↓
-        Logs, métricas, hooks pós-mensagem
-        ```
-
-        ### 6.2. Mensagem de Áudio
-        ```plaintext
-        Usuário envia áudio
-        ↓
-        venom.onMessage → bot.js
-        ↓
-        Verifica tipo: áudio
-        ↓
-        audioProcessor.processAudioMessage()
-        ↓
-        Decripta e salva áudio
-        ↓
-        Transcreve via Python (Whisper)
-        ↓
-        Melhora transcrição via IA
-        ↓
-        Segue fluxo de texto (acima)
-        ```
-
-        ---
-
-        ## 7. Edge Cases e Resiliência
-
-        - Mensagem vazia: ignorada
-        - Áudio inválido: erro amigável ao usuário
-        - Falha na transcrição: fallback para mensagem padrão
-        - Falha na IA: resposta padrão, log detalhado
-        - Comando admin inválido: feedback imediato
-        - Corrupção de banco: backup/restauração
-        - Timeout em APIs externas: retries, fallback
-        - Plugins com erro: isolados, não afetam fluxo principal
-
-        ---
-
-        ## 8. Detalhes de Implementação: Código Real
-
-        ### 8.1. Exemplo de Processamento de Mensagem
-        ```js
-        client.onMessage(async (message) => {
-            if (!message.from.includes('@c.us') || message.isGroupMsg) return;
-            if (!message.body && message.type !== 'audio' && message.type !== 'ptt') return;
-
-            if (message.type === 'audio' || message.type === 'ptt' || (message.mimetype && message.mimetype.startsWith('audio'))) {
-                // Áudio
-                const buffer = await client.decryptFile(message);
-                message.data = buffer;
-                await audioProcessor.processAudioMessage(client, message);
-                return;
-            }
-
-            // Texto
-            if (message.body && message.body.startsWith('/') && isAdmin(message.from)) {
-                const response = await handleAdminCommand(message);
-                await client.sendText(message.from, response);
-                return;
-            }
-            messageQueue.addMessage(message);
-        });
-        ```
-
-        ### 8.2. Exemplo de Transcrição de Áudio
-        ```js
-        async transcribeAudio(filePath, audioHash, userId = null, retries = 2) {
-            // Estratégia baseada no modo (rápido vs preciso)
-            let transcriptionStrategies;
-            let timeout;
-            if (this.fastMode) {
-                transcriptionStrategies = [ { model: 'tiny', temperature: 0.0, language: 'pt' } ];
-                timeout = 10000;
-            } else {
-                transcriptionStrategies = [
-                    { model: 'large', temperature: 0.0, language: 'pt' },
-                    { model: 'medium', temperature: 0.0, language: 'pt' },
-                    { model: 'small', temperature: 0.0, language: 'pt' }
-                ];
-                timeout = 45000;
-            }
-            // ...
-        }
-        ```
-
-        ---
-
-        ## 9. Banco de Dados e ORM
-
-        ### 9.1. Arquitetura do Banco
-
-        O OrbitBot utiliza **SQLite** como banco de dados principal, escolhido por sua simplicidade, confiabilidade e performance adequada para aplicações de médio porte.
-
-        ### Esquema do Banco de Dados
-
-        ```mermaid
-        erDiagram
-            CLIENTES {
-                int id PK
-                string numero UK
-                datetime created_at
-            }
-            
-            HISTORICO {
-                int id PK
-                int cliente_id FK
-                string mensagem
-                string role
-                datetime created_at
-            }
-            
-            CLIENTES ||--o{ HISTORICO : "tem"
-        ```
-
-        ### Relacionamentos e Índices
-
-        ```mermaid
-        graph TD
-            A[CLIENTES] --> B[id: INTEGER PRIMARY KEY]
-            A --> C[numero: TEXT UNIQUE]
-            A --> D[created_at: DATETIME]
-            
-            E[HISTORICO] --> F[id: INTEGER PRIMARY KEY]
-            E --> G[cliente_id: INTEGER FK]
-            E --> H[mensagem: TEXT]
-            E --> I[role: TEXT]
-            E --> J[created_at: DATETIME]
-            
-            K[Índices] --> L[idx_historico_cliente]
-            K --> M[idx_historico_created]
-            
-            L --> G
-            M --> J
-        ```
-
-        ### Fluxo de Operações CRUD
-
-        ```mermaid
-        sequenceDiagram
-            participant A as Application
-            participant D as Database
-            participant B as Backup
-            
-            A->>D: INSERT cliente
-            D->>D: Validação UNIQUE
-            D->>A: Retorna ID
-            
-            A->>D: INSERT mensagem
-            D->>D: Validação FK
-            D->>A: Confirmação
-            
-            A->>D: SELECT histórico
-            D->>D: Query com JOIN
-            D->>A: Resultado paginado
-            
-            A->>B: Trigger backup
-            B->>B: Backup automático
-            B->>A: Confirmação
-        ```
-
-        ### 9.2. Estrutura do Banco (DDL)
-
-        ```sql
-        -- Tabela de Clientes
-        CREATE TABLE IF NOT EXISTS clientes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            numero TEXT UNIQUE NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-
-        -- Tabela de Histórico
-        CREATE TABLE IF NOT EXISTS historico (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cliente_id INTEGER NOT NULL,
-            mensagem TEXT NOT NULL,
-            role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE
-        );
-
-        -- Índices para Performance
-        CREATE INDEX IF NOT EXISTS idx_historico_cliente ON historico(cliente_id);
-        CREATE INDEX IF NOT EXISTS idx_historico_created ON historico(created_at);
-        CREATE INDEX IF NOT EXISTS idx_historico_cliente_created ON historico(cliente_id, created_at DESC);
-        ```
-
-        **Decisões de Design:**
-        - `AUTOINCREMENT`: Evita reutilização de IDs, importante para auditoria
-        - `UNIQUE` no número: Garante unicidade, facilita busca
-        - `CHECK` no role: Validação no nível do banco
-        - `ON DELETE CASCADE`: Se cliente for removido, histórico é removido automaticamente
-        - Índices compostos: Otimiza queries de histórico por cliente ordenado por data
-
-        ### 9.3. Inicialização do Banco
-
-        ```js
-        // database/db.js
-        const db = new sqlite3.Database(path.join(__dirname, 'data/orbitbot.db'), (err) => {
-            if (err) {
-                console.error('Erro ao conectar ao banco de dados:', err);
-            } else {
-                console.log('Conectado ao banco de dados SQLite');
-                initDatabase();
-            }
-        });
-
-        function initDatabase() {
-            db.serialize(() => {
-                // Executa DDL em série para garantir ordem
-                db.run(`CREATE TABLE IF NOT EXISTS clientes (...)`);
-                db.run(`CREATE TABLE IF NOT EXISTS historico (...)`);
-                db.run('CREATE INDEX IF NOT EXISTS idx_historico_cliente ON historico(cliente_id)');
-                db.run('CREATE INDEX IF NOT EXISTS idx_historico_created ON historico(created_at)');
-            });
-        }
-        ```
-
-        ### 9.4. Operações Principais
-
-        #### 9.4.1. Cadastrar Cliente
-        ```js
-        cadastrarCliente: (numero) => {
-            return new Promise((resolve, reject) => {
-                db.run(
-                    'INSERT INTO clientes (numero) VALUES (?)',
-                    [numero],
-                    function(err) {
-                        if (err) {
-                            // Se erro for UNIQUE constraint, busca cliente existente
-                            if (err.code === 'SQLITE_CONSTRAINT') {
-                                return buscarCliente(numero).then(resolve).catch(reject);
-                            }
-                            reject(err);
-                        } else {
-                            resolve({
-                                id: this.lastID,
-                                numero,
-                                created_at: new Date().toISOString()
-                            });
-                        }
+# 🛠️ Wiki Técnica OrbitBot (Nível Engenharia)
+
+> **Manual técnico avançado do OrbitBot: arquitetura, algoritmos, fluxos, decisões e exemplos reais.**
+
+---
+
+## Sumário Ultra Detalhado
+
+1. [Introdução e Filosofia de Design](#1-introducao-e-filosofia-de-design)
+2. [Arquitetura Geral e Diagrama de Módulos](#2-arquitetura-geral-e-diagrama-de-modulos)
+3. [Ciclo de Vida de uma Mensagem](#3-ciclo-de-vida-de-uma-mensagem)
+4. [Fluxo Interno: Texto vs Áudio](#4-fluxo-interno-texto-vs-audio)
+5. [Estrutura dos Módulos](#5-estrutura-dos-modulos)
+6. [Exemplo: Caminho Completo de uma Mensagem](#6-exemplo-caminho-completo-de-uma-mensagem)
+7. [Edge Cases e Resiliência](#7-edge-cases-e-resiliencia)
+8. [Detalhes de Implementação: Código Real](#8-detalhes-de-implementacao-codigo-real)
+9. [Banco de Dados e ORM](#9-banco-de-dados-e-orm)
+10. [Sistema de Fila de Mensagens](#11-sistema-de-fila-de-mensagens)
+11. [Sistema de IA Avançado](#13-sistema-de-ia-avancado)
+12. [Sistema de Plugins Avançado](#15-sistema-de-plugins-avancado)
+13. [Sistema de Áudio: Integração Python, Estratégias, Timeouts, Fallbacks](#16-sistema-de-audio-integracao-python-estrategias-timeouts-fallbacks)
+14. [Tratamento de Erros: Propagação, Auto-Recuperação, Circuit Breaker](#17-tratamento-de-erros-propagacao-auto-recuperacao-circuit-breaker)
+15. [Testes: Unitários, Integração, Stress, Coverage](#18-testes-unitarios-integracao-stress-coverage)
+16. [DevOps: CI/CD, Observabilidade, Monitoramento](#19-devops-cicd-observabilidade-monitoramento)
+17. [Implementação de Testes Automatizados](#20-implementacao-de-testes-automatizados)
+18. [Guia de Implementação de Testes Automatizados](#21-guia-de-implementacao-de-testes-automatizados)
+19. [Conclusão e Próximos Passos](#22-conclusao-e-proximos-passos)
+
+---
+
+## 1. Introdução e Filosofia de Design
+
+O OrbitBot foi projetado seguindo princípios de **engenharia de software moderna**, com foco em:
+
+- **Modularidade**: Cada funcionalidade é um módulo independente
+- **Resiliência**: Sistema nunca trava, sempre há fallback
+- **Performance**: Otimizações em múltiplas camadas
+- **Observabilidade**: Logs detalhados e métricas em tempo real
+- **Escalabilidade**: Arquitetura preparada para crescimento
+
+### Fluxo Interno de Mensagens
+
+```mermaid
+sequenceDiagram
+    participant W as WhatsApp
+    participant B as Bot Core
+    participant Q as Message Queue
+    participant A as Audio Processor
+    participant I as AI System
+    participant D as Database
+    participant H as Humanizer
+
+    W->>B: Mensagem Recebida
+    B->>B: Validação Inicial
+    alt É Áudio
+        B->>A: Processa Áudio
+        A->>A: Transcrição Whisper
+        A->>I: Melhoria com IA
+        A->>B: Texto Processado
+    end
+    B->>Q: Adiciona à Fila
+    Q->>D: Busca Histórico
+    D->>Q: Retorna Contexto
+    Q->>I: Gera Resposta
+    I->>H: Humaniza Resposta
+    H->>W: Envia Mensagem
+    Q->>D: Atualiza Histórico
+```
+
+### Estrutura dos Módulos
+
+```mermaid
+graph TD
+    subgraph "Core Modules"
+        A[bot.js] --> B[queue.js]
+        B --> C[openai.js]
+        C --> D[aiConfig.js]
+    end
+    
+    subgraph "Processing Modules"
+        E[audioProcessor.js] --> F[humanizer.js]
+        G[pluginSystem.js] --> H[performance.js]
+    end
+    
+    subgraph "Data Layer"
+        I[database/db.js] --> J[backup.js]
+        K[logger.js] --> L[treinamento.js]
+    end
+    
+    A --> E
+    A --> G
+    A --> I
+    B --> K
+    C --> H
+    D --> L
+```
+
+---
+
+## 2. Arquitetura Geral e Diagrama de Módulos
+
+O OrbitBot é composto por múltiplos módulos, cada um responsável por um domínio:
+
+- **bot.js**: Orquestra o ciclo de vida, integra todos os módulos
+- **audioProcessor.js**: Processamento de áudio, integração Python, melhoria IA
+- **aiConfig.js**: Configuração dinâmica de IA, personalidades, contexto
+- **pluginSystem.js**: Plugins, hooks, middleware
+- **queue.js**: Fila de mensagens, retries, controle de concorrência
+- **backup.js**: Backup, restauração, logs
+- **logger.js**: Logging estruturado, métricas
+- **performance.js**: Monitoramento, métricas
+- **database/db.js**: Operações SQLite, queries parametrizadas
+
+### Diagrama de Dependências
+
+```mermaid
+graph TD
+    A[bot.js] -->|usa| B[audioProcessor.js]
+    A -->|usa| C[aiConfig.js]
+    A -->|usa| D[pluginSystem.js]
+    A -->|usa| E[queue.js]
+    A -->|usa| F[backup.js]
+    A -->|usa| G[logger.js]
+    A -->|usa| H[performance.js]
+    A -->|usa| I[database/db.js]
+    B -->|usa| I
+    D -->|usa| G
+    F -->|usa| I
+    E -->|usa| G
+    C -->|usa| G
+```
+
+- **Observação:** Não há dependências circulares. Cada módulo pode ser testado isoladamente.
+
+---
+
+## 3. Ciclo de Vida de uma Mensagem
+
+### 3.1. Recepção
+- O OrbitBot utiliza o `venom-bot` para escutar mensagens do WhatsApp.
+- Cada mensagem recebida dispara o evento `onMessage`.
+
+### 3.2. Classificação
+- O tipo da mensagem é inspecionado: texto, áudio, comando admin, etc.
+- Mensagens de áudio são processadas imediatamente pelo `audioProcessor`.
+- Mensagens de texto são enfileiradas na `queue`.
+- Comandos admin (prefixo `/`) são processados imediatamente se o número for admin.
+
+### 3.3. Processamento
+- Mensagens na fila são processadas em ordem FIFO.
+- O histórico do cliente é atualizado antes de qualquer processamento IA.
+- O contexto da conversa é recuperado para fornecer contexto à IA.
+- Plugins podem interceptar antes/depois do processamento.
+
+### 3.4. Geração de Resposta
+- O módulo de IA (`openai.js` + `aiConfig.js`) gera a resposta baseada no histórico, personalidade e contexto.
+- A resposta pode ser modificada por plugins (ex: auto response, sentiment analysis).
+
+### 3.5. Humanização e Envio
+- A resposta é humanizada (simulação de digitação, delays, chunking inteligente).
+- A resposta é enviada ao usuário via WhatsApp.
+- O histórico é atualizado com a resposta.
+
+### 3.6. Pós-processamento
+- Métricas de performance são atualizadas.
+- Logs detalhados são gerados.
+- Plugins podem executar hooks pós-mensagem.
+
+---
+
+## 4. Fluxo Interno: Texto vs Áudio
+
+### 4.1. Texto
+1. Recebido pelo `venom-bot`
+2. Enfileirado em `queue`
+3. Processado sequencialmente
+4. Histórico atualizado
+5. IA chamada com contexto
+6. Plugins/humanização
+7. Resposta enviada
+
+### 4.2. Áudio
+1. Recebido pelo `venom-bot`
+2. Decriptado e salvo em `audios/`
+3. Transcrição via Python (Whisper)
+4. Melhoria da transcrição via IA (OpenRouter)
+5. Transcrição tratada como mensagem de texto (segue fluxo normal)
+
+#### Diagrama de Fluxo
+```mermaid
+graph TD
+    A[Recebe Mensagem] --> B{É Áudio?}
+    B -->|Sim| C[Decripta e Salva]
+    C --> D[Transcreve Python]
+    D --> E[Melhora com IA]
+    E --> F[Processa como Texto]
+    B -->|Não| F
+    F --> G[Atualiza Histórico]
+    G --> H[IA e Plugins]
+    H --> I[Humanização]
+    I --> J[Envia Resposta]
+```
+
+---
+
+## 5. Estrutura dos Módulos
+
+### 5.1. bot.js
+- Ponto de entrada do sistema
+- Inicializa venom, listeners, fila, logger, performance
+- Responsável por orquestrar o ciclo de vida completo
+
+### 5.2. audioProcessor.js
+- Classe singleton
+- Métodos principais:
+- `processAudioMessage(client, message)`
+- `transcribeAudio(filePath, ...)`
+- `improveTranscriptionWithAI(transcription, userId)`
+- Estratégias de melhoria: ultra_precise, contextual_aggressive, conservative_enhanced
+- Estatísticas: totalProcessed, avgConfidence, improvementRate
+
+### 5.3. aiConfig.js
+- Gerencia modelos, personalidades, contexto
+- Métodos:
+- `setPersonality`, `getPersonality`, `listPersonalities`
+- `setModel`, `getModel`, `listModels`
+- `detectAndAdaptContext`
+- `generateConfig`
+- Personalidades compostas: weights, adaptação dinâmica
+
+### 5.4. pluginSystem.js
+- PluginSystem: registro, hooks, middleware
+- Plugins padrão e customizados
+- Hooks: beforeMessage, afterMessage, messageProcessed
+- Métodos:
+- `registerPlugin`, `togglePlugin`, `listPlugins`, `getPlugin`
+
+### 5.5. queue.js
+- MessageQueue: EventEmitter
+- Métodos:
+- `addMessage`, `processQueue`, `getQueueSize`
+- Retries exponenciais, eventos de erro
+
+### 5.6. backup.js
+- BackupManager: backup manual/auto, restauração, logs
+- Métodos:
+- `createBackup`, `restoreBackup`, `deleteBackup`, `getBackupInfo`, `getCurrentBackupInfo`
+- Limpeza automática, log em JSON
+
+### 5.7. logger.js
+- Logger customizado: info, error, debug, performance, api, queue
+- Integração com métricas do banco e áudio
+
+### 5.8. performance.js
+- PerformanceMonitor: uptime, mensagens, erros, tempo médio, memória, CPU
+- Loga métricas a cada 1min
+
+### 5.9. database/db.js
+- SQLite3 puro, queries parametrizadas
+- Métodos:
+- `cadastrarCliente`, `buscarCliente`, `adicionarMensagem`, `buscarHistorico`, `buscarUltimasMensagens`
+
+---
+
+## 6. Exemplo: Caminho Completo de uma Mensagem
+
+### 6.1. Mensagem de Texto
+```plaintext
+Usuário envia: "Oi, Orbit!"
+↓
+venom.onMessage → bot.js
+↓
+Verifica tipo: texto
+↓
+queue.addMessage(message)
+↓
+queue.processQueue()
+↓
+Atualiza histórico (database)
+↓
+Recupera contexto (aiConfig)
+↓
+Gera resposta IA (openai.js)
+↓
+Plugins (pluginSystem)
+↓
+Humanização (humanizer.js)
+↓
+client.sendText()
+↓
+Atualiza histórico (resposta)
+↓
+Logs, métricas, hooks pós-mensagem
+```
+
+### 6.2. Mensagem de Áudio
+```plaintext
+Usuário envia áudio
+↓
+venom.onMessage → bot.js
+↓
+Verifica tipo: áudio
+↓
+audioProcessor.processAudioMessage()
+↓
+Decripta e salva áudio
+↓
+Transcreve via Python (Whisper)
+↓
+Melhora transcrição via IA
+↓
+Segue fluxo de texto (acima)
+```
+
+---
+
+## 7. Edge Cases e Resiliência
+
+- Mensagem vazia: ignorada
+- Áudio inválido: erro amigável ao usuário
+- Falha na transcrição: fallback para mensagem padrão
+- Falha na IA: resposta padrão, log detalhado
+- Comando admin inválido: feedback imediato
+- Corrupção de banco: backup/restauração
+- Timeout em APIs externas: retries, fallback
+- Plugins com erro: isolados, não afetam fluxo principal
+
+---
+
+## 8. Detalhes de Implementação: Código Real
+
+### 8.1. Exemplo de Processamento de Mensagem
+```js
+client.onMessage(async (message) => {
+    if (!message.from.includes('@c.us') || message.isGroupMsg) return;
+    if (!message.body && message.type !== 'audio' && message.type !== 'ptt') return;
+
+    if (message.type === 'audio' || message.type === 'ptt' || (message.mimetype && message.mimetype.startsWith('audio'))) {
+        // Áudio
+        const buffer = await client.decryptFile(message);
+        message.data = buffer;
+        await audioProcessor.processAudioMessage(client, message);
+        return;
+    }
+
+    // Texto
+    if (message.body && message.body.startsWith('/') && isAdmin(message.from)) {
+        const response = await handleAdminCommand(message);
+        await client.sendText(message.from, response);
+        return;
+    }
+    messageQueue.addMessage(message);
+});
+```
+
+### 8.2. Exemplo de Transcrição de Áudio
+```js
+async transcribeAudio(filePath, audioHash, userId = null, retries = 2) {
+    // Estratégia baseada no modo (rápido vs preciso)
+    let transcriptionStrategies;
+    let timeout;
+    if (this.fastMode) {
+        transcriptionStrategies = [ { model: 'tiny', temperature: 0.0, language: 'pt' } ];
+        timeout = 10000;
+    } else {
+        transcriptionStrategies = [
+            { model: 'large', temperature: 0.0, language: 'pt' },
+            { model: 'medium', temperature: 0.0, language: 'pt' },
+            { model: 'small', temperature: 0.0, language: 'pt' }
+        ];
+        timeout = 45000;
+    }
+    // ...
+}
+```
+
+---
+
+## 9. Banco de Dados e ORM
+
+### 9.1. Arquitetura do Banco
+
+O OrbitBot utiliza **SQLite** como banco de dados principal, escolhido por sua simplicidade, confiabilidade e performance adequada para aplicações de médio porte.
+
+### Esquema do Banco de Dados
+
+```mermaid
+erDiagram
+    CLIENTES {
+        int id PK
+        string numero UK
+        datetime created_at
+    }
+    
+    HISTORICO {
+        int id PK
+        int cliente_id FK
+        string mensagem
+        string role
+        datetime created_at
+    }
+    
+    CLIENTES ||--o{ HISTORICO : "tem"
+```
+
+### Relacionamentos e Índices
+
+```mermaid
+graph TD
+    A[CLIENTES] --> B[id: INTEGER PRIMARY KEY]
+    A --> C[numero: TEXT UNIQUE]
+    A --> D[created_at: DATETIME]
+    
+    E[HISTORICO] --> F[id: INTEGER PRIMARY KEY]
+    E --> G[cliente_id: INTEGER FK]
+    E --> H[mensagem: TEXT]
+    E --> I[role: TEXT]
+    E --> J[created_at: DATETIME]
+    
+    K[Índices] --> L[idx_historico_cliente]
+    K --> M[idx_historico_created]
+    
+    L --> G
+    M --> J
+```
+
+### Fluxo de Operações CRUD
+
+```mermaid
+sequenceDiagram
+    participant A as Application
+    participant D as Database
+    participant B as Backup
+    
+    A->>D: INSERT cliente
+    D->>D: Validação UNIQUE
+    D->>A: Retorna ID
+    
+    A->>D: INSERT mensagem
+    D->>D: Validação FK
+    D->>A: Confirmação
+    
+    A->>D: SELECT histórico
+    D->>D: Query com JOIN
+    D->>A: Resultado paginado
+    
+    A->>B: Trigger backup
+    B->>B: Backup automático
+    B->>A: Confirmação
+```
+
+### 9.2. Estrutura do Banco (DDL)
+
+```sql
+-- Tabela de Clientes
+CREATE TABLE IF NOT EXISTS clientes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    numero TEXT UNIQUE NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabela de Histórico
+CREATE TABLE IF NOT EXISTS historico (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cliente_id INTEGER NOT NULL,
+    mensagem TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE
+);
+
+-- Índices para Performance
+CREATE INDEX IF NOT EXISTS idx_historico_cliente ON historico(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_historico_created ON historico(created_at);
+CREATE INDEX IF NOT EXISTS idx_historico_cliente_created ON historico(cliente_id, created_at DESC);
+```
+
+**Decisões de Design:**
+- `AUTOINCREMENT`: Evita reutilização de IDs, importante para auditoria
+- `UNIQUE` no número: Garante unicidade, facilita busca
+- `CHECK` no role: Validação no nível do banco
+- `ON DELETE CASCADE`: Se cliente for removido, histórico é removido automaticamente
+- Índices compostos: Otimiza queries de histórico por cliente ordenado por data
+
+### 9.3. Inicialização do Banco
+
+```js
+// database/db.js
+const db = new sqlite3.Database(path.join(__dirname, 'data/orbitbot.db'), (err) => {
+    if (err) {
+        console.error('Erro ao conectar ao banco de dados:', err);
+    } else {
+        console.log('Conectado ao banco de dados SQLite');
+        initDatabase();
+    }
+});
+
+function initDatabase() {
+    db.serialize(() => {
+        // Executa DDL em série para garantir ordem
+        db.run(`CREATE TABLE IF NOT EXISTS clientes (...)`);
+        db.run(`CREATE TABLE IF NOT EXISTS historico (...)`);
+        db.run('CREATE INDEX IF NOT EXISTS idx_historico_cliente ON historico(cliente_id)');
+        db.run('CREATE INDEX IF NOT EXISTS idx_historico_created ON historico(created_at)');
+    });
+}
+```
+
+### 9.4. Operações Principais
+
+#### 9.4.1. Cadastrar Cliente
+```js
+cadastrarCliente: (numero) => {
+    return new Promise((resolve, reject) => {
+        db.run(
+            'INSERT INTO clientes (numero) VALUES (?)',
+            [numero],
+            function(err) {
+                if (err) {
+                    // Se erro for UNIQUE constraint, busca cliente existente
+                    if (err.code === 'SQLITE_CONSTRAINT') {
+                        return buscarCliente(numero).then(resolve).catch(reject);
                     }
-                );
-            });
-        }
-        ```
+                    reject(err);
+                } else {
+                    resolve({
+                        id: this.lastID,
+                        numero,
+                        created_at: new Date().toISOString()
+                    });
+                }
+            }
+        );
+    });
+}
+```
 
-        **Tratamento de Erro:**
-        - Se número já existe, busca e retorna cliente existente
-        - Evita duplicação e race conditions
+**Tratamento de Erro:**
+- Se número já existe, busca e retorna cliente existente
+- Evita duplicação e race conditions
 
-        #### 9.4.2. Buscar Histórico com Paginação
-        ```js
-        buscarHistorico: (cliente_id, page = 1, limit = 10) => {
-            return new Promise((resolve, reject) => {
-                const offset = (page - 1) * limit;
-                
-                // Busca total para paginação
-                db.get(
-                    'SELECT COUNT(*) as total FROM historico WHERE cliente_id = ?',
-                    [cliente_id],
-                    (err, countRow) => {
-                        if (err) {
-                            reject(err);
-                            return;
-                        }
+#### 9.4.2. Buscar Histórico com Paginação
+```js
+buscarHistorico: (cliente_id, page = 1, limit = 10) => {
+    return new Promise((resolve, reject) => {
+        const offset = (page - 1) * limit;
+        
+        // Busca total para paginação
+        db.get(
+            'SELECT COUNT(*) as total FROM historico WHERE cliente_id = ?',
+            [cliente_id],
+            (err, countRow) => {
+                if (err) {
+                    reject(err);
+                    return;
+                }
 
-                        const total = countRow.total;
-                        const totalPages = Math.ceil(total / limit);
+                const total = countRow.total;
+                const totalPages = Math.ceil(total / limit);
 
-                        // Busca mensagens da página
-                        db.all(
-                            `SELECT * FROM historico 
-                            WHERE cliente_id = ? 
-                            ORDER BY created_at DESC 
-                            LIMIT ? OFFSET ?`,
-                            [cliente_id, limit, offset],
-                            (err, rows) => {
-                                if (err) {
-                                    reject(err);
-                                } else {
-                                    resolve({
-                                        messages: rows,
-                                        pagination: {
-                                            currentPage: page,
-                                            totalPages,
-                                            totalMessages: total,
-                                            hasNextPage: page < totalPages,
-                                            hasPreviousPage: page > 1
-                                        }
-                                    });
-                                }
-                            }
-                        );
-                    }
-                );
-            });
-        }
-        ```
-
-        **Otimizações:**
-        - `ORDER BY created_at DESC`: Mensagens mais recentes primeiro
-        - `LIMIT/OFFSET`: Paginação eficiente
-        - Índice composto `(cliente_id, created_at DESC)`: Otimiza a query
-
-        #### 9.4.3. Buscar Últimas Mensagens
-        ```js
-        buscarUltimasMensagens: (cliente_id, limit = 5) => {
-            return new Promise((resolve, reject) => {
+                // Busca mensagens da página
                 db.all(
                     `SELECT * FROM historico 
                     WHERE cliente_id = ? 
                     ORDER BY created_at DESC 
-                    LIMIT ?`,
-                    [cliente_id, limit],
+                    LIMIT ? OFFSET ?`,
+                    [cliente_id, limit, offset],
                     (err, rows) => {
                         if (err) {
                             reject(err);
                         } else {
-                            resolve(rows);
+                            resolve({
+                                messages: rows,
+                                pagination: {
+                                    currentPage: page,
+                                    totalPages,
+                                    totalMessages: total,
+                                    hasNextPage: page < totalPages,
+                                    hasPreviousPage: page > 1
+                                }
+                            });
                         }
                     }
                 );
-            });
-        }
-        ```
-
-        ### 9.5. Transações e Integridade
-
-        #### 9.5.1. Transação para Atualização de Histórico
-        ```js
-        // Exemplo de transação (não implementado no código atual, mas recomendado)
-        async function atualizarHistoricoComTransacao(clienteId, mensagem, role) {
-            return new Promise((resolve, reject) => {
-                db.serialize(() => {
-                    db.run('BEGIN TRANSACTION');
-                    
-                    db.run(
-                        'INSERT INTO historico (cliente_id, mensagem, role) VALUES (?, ?, ?)',
-                        [clienteId, mensagem, role],
-                        function(err) {
-                            if (err) {
-                                db.run('ROLLBACK');
-                                reject(err);
-                            } else {
-                                db.run('COMMIT');
-                                resolve({
-                                    id: this.lastID,
-                                    cliente_id: clienteId,
-                                    mensagem,
-                                    role,
-                                    created_at: new Date().toISOString()
-                                });
-                            }
-                        }
-                    );
-                });
-            });
-        }
-        ```
-
-        #### 9.5.2. Verificação de Integridade
-        ```sql
-        -- Verificar integridade referencial
-        SELECT COUNT(*) as orphaned_messages
-        FROM historico h
-        LEFT JOIN clientes c ON h.cliente_id = c.id
-        WHERE c.id IS NULL;
-
-        -- Verificar duplicatas
-        SELECT numero, COUNT(*) as count
-        FROM clientes
-        GROUP BY numero
-        HAVING COUNT(*) > 1;
-
-        -- Verificar roles inválidos
-        SELECT id, role
-        FROM historico
-        WHERE role NOT IN ('user', 'assistant');
-        ```
-
-        ### 9.6. Performance e Otimizações
-
-        #### 9.6.1. Análise de Performance
-        ```sql
-        -- Verificar uso de índices
-        EXPLAIN QUERY PLAN
-        SELECT * FROM historico 
-        WHERE cliente_id = ? 
-        ORDER BY created_at DESC 
-        LIMIT 10;
-
-        -- Estatísticas de tabelas
-        SELECT 
-            name,
-            sql
-        FROM sqlite_master
-        WHERE type = 'table';
-
-        -- Tamanho das tabelas
-        SELECT 
-            'clientes' as table_name,
-            COUNT(*) as row_count
-        FROM clientes
-        UNION ALL
-        SELECT 
-            'historico' as table_name,
-            COUNT(*) as row_count
-        FROM historico;
-        ```
-
-        #### 9.6.2. Otimizações Implementadas
-        - **Índices**: Otimizam queries por cliente e data
-        - **Queries parametrizadas**: Previnem SQL injection e melhoram performance
-        - **Paginação**: Evita carregar todo o histórico na memória
-        - **LIMIT**: Restringe resultados para queries de contexto
-
-        #### 9.6.3. Otimizações Futuras
-        ```sql
-        -- Índice parcial para mensagens recentes
-        CREATE INDEX IF NOT EXISTS idx_historico_recentes 
-        ON historico(cliente_id, created_at DESC) 
-        WHERE created_at > datetime('now', '-30 days');
-
-        -- Índice para busca por conteúdo
-        CREATE INDEX IF NOT EXISTS idx_historico_mensagem 
-        ON historico(mensagem) 
-        WHERE length(mensagem) > 10;
-
-        -- Tabela de estatísticas
-        CREATE TABLE IF NOT EXISTS estatisticas (
-            id INTEGER PRIMARY KEY,
-            total_clientes INTEGER,
-            total_mensagens INTEGER,
-            ultima_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP
+            }
         );
-        ```
+    });
+}
+```
 
-        ### 9.7. Backup e Restore
+**Otimizações:**
+- `ORDER BY created_at DESC`: Mensagens mais recentes primeiro
+- `LIMIT/OFFSET`: Paginação eficiente
+- Índice composto `(cliente_id, created_at DESC)`: Otimiza a query
 
-        #### 9.7.1. Backup do Banco
-        ```js
-        // backup.js - Estratégia de backup
-        createBackup(customName = null, isAutomatic = false) {
-            try {
-                let backupName;
-                const now = new Date();
-                const day = String(now.getDate()).padStart(2, '0');
-                const month = String(now.getMonth() + 1).padStart(2, '0');
-                const year = String(now.getFullYear()).slice(-2);
-                const hour = String(now.getHours()).padStart(2, '0');
-                const minute = String(now.getMinutes()).padStart(2, '0');
-                
-                if (customName) {
-                    backupName = `backup ${customName}`;
-                } else if (isAutomatic) {
-                    backupName = `backup auto_${day}-${month}-${year}_${hour}-${minute}`;
-                } else {
-                    backupName = `backup ${day}-${month}-${year} ${hour}-${minute}`;
-                }
-
-                const backupPath = path.join(this.backupDir, backupName);
-                fs.mkdirSync(backupPath);
-
-                // Cópia física do arquivo
-                fs.copyFileSync(this.dbFile, path.join(backupPath, 'orbitbot.db'));
-
-                // Log da operação
-                this.addLogEntry('create', { 
-                    backupName,
-                    type: isAutomatic ? 'automático' : 'manual'
-                });
-
-                return true;
-            } catch (err) {
-                logger.error('Erro ao criar backup', { error: err.message });
-                return false;
-            }
-        }
-        ```
-
-        #### 9.7.2. Restore do Banco
-        ```js
-        restoreBackup(backupName) {
-            try {
-                const backupPath = path.join(this.backupDir, backupName);
-                
-                if (!fs.existsSync(backupPath)) {
-                    throw new Error(`Backup não encontrado: ${backupName}`);
-                }
-
-                const dbFile = path.join(backupPath, 'orbitbot.db');
-                if (!fs.existsSync(dbFile)) {
-                    throw new Error('Arquivo do banco de dados não encontrado no backup');
-                }
-
-                // Restaura o arquivo
-                fs.copyFileSync(dbFile, this.dbFile);
-
-                this.addLogEntry('restore', { backupName });
-                return true;
-            } catch (err) {
-                logger.error('Erro ao restaurar backup', { 
-                    error: err.message,
-                    backupName
-                });
-                return false;
-            }
-        }
-        ```
-
-        #### 9.7.3. Verificação de Integridade do Backup
-        ```js
-        async getBackupInfo(backupName) {
-            try {
-                const backupPath = path.join(this.backupDir, backupName);
-                if (!fs.existsSync(backupPath)) {
-                    throw new Error(`Backup não encontrado: ${backupName}`);
-                }
-
-                const dbFile = path.join(backupPath, 'orbitbot.db');
-                if (!fs.existsSync(dbFile)) {
-                    throw new Error('Arquivo do banco de dados não encontrado no backup');
-                }
-
-                const stats = fs.statSync(dbFile);
-                const dbInfo = await this.getDatabaseInfo(dbFile);
-
-                return {
-                    totalClientes: dbInfo.totalClientes,
-                    totalMensagens: dbInfo.totalMensagens,
-                    size: stats.size,
-                    created_at: stats.birthtime.toISOString(),
-                    isAutomatic: backupName.includes('auto_')
-                };
-            } catch (err) {
-                logger.error('Erro ao obter informações do backup', { 
-                    error: err.message,
-                    backupName
-                });
-                return null;
-            }
-        }
-        ```
-
-        ### 9.8. Monitoramento e Métricas
-
-        #### 9.8.1. Métricas do Banco
-        ```js
-        // logger.js - Integração com métricas do banco
-        performance: (data) => {
-            const dbPath = path.join(__dirname, '../database/data/orbitbot.db');
-            
-            let totalClientes = 0;
-            let totalMensagens = 0;
-            
-            const db = new sqlite3.Database(dbPath, (err) => {
+#### 9.4.3. Buscar Últimas Mensagens
+```js
+buscarUltimasMensagens: (cliente_id, limit = 5) => {
+    return new Promise((resolve, reject) => {
+        db.all(
+            `SELECT * FROM historico 
+            WHERE cliente_id = ? 
+            ORDER BY created_at DESC 
+            LIMIT ?`,
+            [cliente_id, limit],
+            (err, rows) => {
                 if (err) {
-                    console.error('Erro ao conectar ao banco para métricas:', err.message);
-                    return;
+                    reject(err);
+                } else {
+                    resolve(rows);
                 }
-
-                db.get(`
-                    SELECT 
-                        (SELECT COUNT(*) FROM clientes) as totalClientes,
-                        (SELECT COUNT(*) FROM historico) as totalMensagens
-                `, (err, row) => {
-                    db.close();
-                    if (err) {
-                        console.error('Erro ao ler dados do banco:', err.message);
-                    } else {
-                        totalClientes = row.totalClientes;
-                        totalMensagens = row.totalMensagens;
-                    }
-
-                    console.log('\n=== DADOS DO BANCO ===');
-                    console.log(`Total de clientes: ${totalClientes}`);
-                    console.log(`Total de mensagens no histórico: ${totalMensagens}`);
-                });
-            });
-        }
-        ```
-
-        #### 9.8.2. Queries de Monitoramento
-        ```sql
-        -- Crescimento de clientes por dia
-        SELECT 
-            DATE(created_at) as data,
-            COUNT(*) as novos_clientes
-        FROM clientes
-        GROUP BY DATE(created_at)
-        ORDER BY data DESC
-        LIMIT 30;
-
-        -- Crescimento de mensagens por dia
-        SELECT 
-            DATE(created_at) as data,
-            COUNT(*) as mensagens
-        FROM historico
-        GROUP BY DATE(created_at)
-        ORDER BY data DESC
-        LIMIT 30;
-
-        -- Clientes mais ativos
-        SELECT 
-            c.numero,
-            COUNT(h.id) as total_mensagens,
-            MAX(h.created_at) as ultima_mensagem
-        FROM clientes c
-        JOIN historico h ON c.id = h.cliente_id
-        GROUP BY c.id
-        ORDER BY total_mensagens DESC
-        LIMIT 10;
-
-        -- Distribuição de roles
-        SELECT 
-            role,
-            COUNT(*) as total
-        FROM historico
-        GROUP BY role;
-        ```
-
-        ### 9.9. Segurança e Validação
-
-        #### 9.9.1. Validação de Entrada
-        ```js
-        // Validação de número de telefone
-        function validarNumero(numero) {
-            if (!numero || typeof numero !== 'string') {
-                throw new Error('Número inválido');
-            }
-            
-            // Remove caracteres especiais
-            const numeroLimpo = numero.replace(/[^\d]/g, '');
-            
-            if (numeroLimpo.length < 10 || numeroLimpo.length > 15) {
-                throw new Error('Número deve ter entre 10 e 15 dígitos');
-            }
-            
-            return numeroLimpo;
-        }
-
-        // Validação de mensagem
-        function validarMensagem(mensagem) {
-            if (!mensagem || typeof mensagem !== 'string') {
-                throw new Error('Mensagem inválida');
-            }
-            
-            if (mensagem.length > 10000) {
-                throw new Error('Mensagem muito longa (máximo 10.000 caracteres)');
-            }
-            
-            return mensagem.trim();
-        }
-
-        // Validação de role
-        function validarRole(role) {
-            const rolesValidos = ['user', 'assistant'];
-            if (!rolesValidos.includes(role)) {
-                throw new Error(`Role inválido. Valores permitidos: ${rolesValidos.join(', ')}`);
-            }
-            return role;
-        }
-        ```
-
-        #### 9.9.2. Sanitização de Queries
-        ```js
-        // Todas as queries usam parâmetros para prevenir SQL injection
-        db.run(
-            'INSERT INTO historico (cliente_id, mensagem, role) VALUES (?, ?, ?)',
-            [clienteId, mensagem, role],  // Parâmetros são escapados automaticamente
-            function(err) {
-                // ...
             }
         );
-        ```
+    });
+}
+```
 
-        ### 9.10. Troubleshooting do Banco
+### 9.5. Transações e Integridade
 
-        #### 9.10.1. Problemas Comuns
-        ```sql
-        -- Verificar se o banco está corrompido
-        PRAGMA integrity_check;
-
-        -- Verificar se os índices estão válidos
-        PRAGMA index_list(historico);
-
-        -- Verificar estatísticas do banco
-        PRAGMA stats;
-
-        -- Verificar configurações
-        PRAGMA journal_mode;
-        PRAGMA synchronous;
-        PRAGMA cache_size;
-        ```
-
-        #### 9.10.2. Comandos de Manutenção
-        ```sql
-        -- Otimizar o banco (VACUUM)
-        VACUUM;
-
-        -- Reconstruir índices
-        REINDEX;
-
-        -- Analisar tabelas para otimização
-        ANALYZE;
-
-        -- Verificar e reparar integridade
-        PRAGMA quick_check;
-        PRAGMA integrity_check;
-        ```
-
-        #### 9.10.3. Scripts de Recuperação
-        ```js
-        // Recuperação de backup automática
-        async function recuperarBancoAutomatico() {
-            try {
-                const backups = backupManager.listBackups();
-                if (backups.length === 0) {
-                    throw new Error('Nenhum backup disponível');
-                }
-                
-                // Usa o backup mais recente
-                const backupMaisRecente = backups[0];
-                const sucesso = backupManager.restoreBackup(backupMaisRecente);
-                
-                if (sucesso) {
-                    logger.info('Banco recuperado automaticamente', { backup: backupMaisRecente });
-                    return true;
-                } else {
-                    throw new Error('Falha na restauração automática');
-                }
-            } catch (err) {
-                logger.error('Erro na recuperação automática', { error: err.message });
-                return false;
-            }
-        }
-        ```
-
-        ---
-
-        ## 10. Próximos Blocos
-
-        - **Fila de Mensagens**: Algoritmo, concorrência, starvation, deadlocks, retries exponenciais
-        - **Sistema de IA**: Prompt engineering, adaptação dinâmica, personalidades compostas, contexto
-        - **Plugins**: API avançada, hooks, middleware, exemplos complexos
-        - **Sistema de Áudio**: Integração Python, estratégias de melhoria, timeouts, fallbacks
-        - **Backup**: Atomicidade, logs estruturados, recovery automático
-        - **Logs**: Formato, rotação, integração externa, alertas
-        - **Tratamento de Erros**: Propagação, auto-recuperação, circuit breaker
-        - **Testes**: Unitários, integração, stress, coverage
-        - **Performance**: Benchmarks, profiling, tuning, escalabilidade
-        - **Segurança**: Validação, autenticação, controle de acesso
-        - **Extensibilidade**: Padrões, anti-patterns, exemplos avançados
-        - **APIs Externas**: Contratos, versionamento, fallback, limites
-        - **DevOps**: Scripts, CI/CD, rollback, observabilidade
-
-        ---
-
-        ## 11. Sistema de Fila de Mensagens
-
-        ### 11.1. Arquitetura da Fila
-
-        O sistema de fila do OrbitBot é baseado em **EventEmitter** e implementa um padrão **Producer-Consumer** com processamento assíncrono:
-
-        ### Algoritmo de Processamento da Fila
-
-        ```mermaid
-        graph TD
-            A[Nova Mensagem] --> B[Validação]
-            B --> C{Valida?}
-            C -->|Não| D[Rejeita]
-            C -->|Sim| E[Adiciona à Fila]
-            E --> F[Emit Event: process]
-            F --> G[Processa Mensagem]
-            G --> H{Sucesso?}
-            H -->|Sim| I[Remove da Fila]
-            H -->|Não| J[Retry Logic]
-            J --> K{Retries < Max?}
-            K -->|Sim| L[Backoff Delay]
-            L --> M[Re-adiciona à Fila]
-            K -->|Não| N[Emit Event: error]
-            M --> F
-        ```
-
-        ### Estados da Mensagem
-
-        ```mermaid
-        stateDiagram-v2
-            [*] --> Pending: Adicionada
-            Pending --> Processing: Processada
-            Processing --> Success: Sucesso
-            Processing --> Failed: Erro
-            Failed --> Retrying: Retry < Max
-            Retrying --> Processing: Re-processada
-            Failed --> [*]: Retry >= Max
-            Success --> [*]: Finalizada
-        ```
-
-        ### Estratégia de Retry com Backoff Exponencial
-
-        ```mermaid
-        graph LR
-            A[Erro] --> B[Retry 1: 1s]
-            B --> C[Erro] --> D[Retry 2: 2s]
-            D --> E[Erro] --> F[Retry 3: 4s]
-            F --> G[Erro] --> H[Falha Final]
-            B --> I[Sucesso]
-            D --> I
-            F --> I
-        ```
-
-        ### 11.2. Implementação da Fila
-
-        ```js
-        // src/queue.js
-        const EventEmitter = require('events');
-
-        class MessageQueue extends EventEmitter {
-            constructor() {
-                super();
-                this.queue = [];
-                this.processing = false;
-                this.maxRetries = 3;
-                this.retryDelay = 1000;
-                this.maxConcurrent = 1; // Processamento sequencial
-                this.currentProcessing = 0;
-                this.stats = {
-                    totalProcessed: 0,
-                    totalErrors: 0,
-                    avgProcessingTime: 0,
-                    queueSize: 0
-                };
-            }
-
-            addMessage(message) {
-                const queueItem = {
-                    message,
-                    retries: 0,
-                    timestamp: Date.now(),
-                    id: this.generateMessageId()
-                };
-
-                this.queue.push(queueItem);
-                this.stats.queueSize = this.queue.length;
-
-                logger.queue('Mensagem adicionada à fila', {
-                    messageId: queueItem.id,
-                    queueSize: this.queue.length,
-                    from: message.from
-                });
-
-                if (!this.processing) {
-                    this.processQueue();
-                }
-            }
-
-            async processQueue() {
-                if (this.processing) return;
-                this.processing = true;
-
-                logger.queue('Iniciando processamento da fila', {
-                    queueSize: this.queue.length
-                });
-
-                while (this.hasMessages() && this.currentProcessing < this.maxConcurrent) {
-                    const item = this.getNextMessage();
-                    if (!item) break;
-
-                    this.currentProcessing++;
-                    this.processMessage(item);
-                }
-
-                this.processing = false;
-            }
-
-            async processMessage(item) {
-                const startTime = Date.now();
-                
-                try {
-                    logger.queue('Processando mensagem', {
-                        messageId: item.id,
-                        retries: item.retries,
-                        from: item.message.from
-                    });
-
-                    await this.emit('process', item.message);
-                    
-                    // Sucesso
-                    const processingTime = Date.now() - startTime;
-                    this.stats.totalProcessed++;
-                    this.stats.avgProcessingTime = 
-                        (this.stats.avgProcessingTime * (this.stats.totalProcessed - 1) + processingTime) / this.stats.totalProcessed;
-                    
-                    logger.queue('Mensagem processada com sucesso', {
-                        messageId: item.id,
-                        processingTime,
-                        avgProcessingTime: this.stats.avgProcessingTime
-                    });
-
-                } catch (error) {
-                    // Erro no processamento
-                    this.stats.totalErrors++;
-                    
-                    logger.error('Erro ao processar mensagem', {
-                        messageId: item.id,
-                        error: error.message,
-                        retries: item.retries,
-                        from: item.message.from
-                    });
-
-                    if (item.retries < this.maxRetries) {
-                        // Retry com backoff exponencial
-                        item.retries++;
-                        const delay = this.calculateRetryDelay(item.retries);
-                        
-                        logger.queue('Agendando retry', {
-                            messageId: item.id,
-                            retries: item.retries,
-                            delay
+#### 9.5.1. Transação para Atualização de Histórico
+```js
+// Exemplo de transação (não implementado no código atual, mas recomendado)
+async function atualizarHistoricoComTransacao(clienteId, mensagem, role) {
+    return new Promise((resolve, reject) => {
+        db.serialize(() => {
+            db.run('BEGIN TRANSACTION');
+            
+            db.run(
+                'INSERT INTO historico (cliente_id, mensagem, role) VALUES (?, ?, ?)',
+                [clienteId, mensagem, role],
+                function(err) {
+                    if (err) {
+                        db.run('ROLLBACK');
+                        reject(err);
+                    } else {
+                        db.run('COMMIT');
+                        resolve({
+                            id: this.lastID,
+                            cliente_id: clienteId,
+                            mensagem,
+                            role,
+                            created_at: new Date().toISOString()
                         });
+                    }
+                }
+            );
+        });
+    });
+}
+```
 
+#### 9.5.2. Verificação de Integridade
+```sql
+-- Verificar integridade referencial
+SELECT COUNT(*) as orphaned_messages
+FROM historico h
+LEFT JOIN clientes c ON h.cliente_id = c.id
+WHERE c.id IS NULL;
+
+-- Verificar duplicatas
+SELECT numero, COUNT(*) as count
+FROM clientes
+GROUP BY numero
+HAVING COUNT(*) > 1;
+
+-- Verificar roles inválidos
+SELECT id, role
+FROM historico
+WHERE role NOT IN ('user', 'assistant');
+```
+
+### 9.6. Performance e Otimizações
+
+#### 9.6.1. Análise de Performance
+```sql
+-- Verificar uso de índices
+EXPLAIN QUERY PLAN
+SELECT * FROM historico 
+WHERE cliente_id = ? 
+ORDER BY created_at DESC 
+LIMIT 10;
+
+-- Estatísticas de tabelas
+SELECT 
+    name,
+    sql
+FROM sqlite_master
+WHERE type = 'table';
+
+-- Tamanho das tabelas
+SELECT 
+    'clientes' as table_name,
+    COUNT(*) as row_count
+FROM clientes
+UNION ALL
+SELECT 
+    'historico' as table_name,
+    COUNT(*) as row_count
+FROM historico;
+```
+
+#### 9.6.2. Otimizações Implementadas
+- **Índices**: Otimizam queries por cliente e data
+- **Queries parametrizadas**: Previnem SQL injection e melhoram performance
+- **Paginação**: Evita carregar todo o histórico na memória
+- **LIMIT**: Restringe resultados para queries de contexto
+
+#### 9.6.3. Otimizações Futuras
+```sql
+-- Índice parcial para mensagens recentes
+CREATE INDEX IF NOT EXISTS idx_historico_recentes 
+ON historico(cliente_id, created_at DESC) 
+WHERE created_at > datetime('now', '-30 days');
+
+-- Índice para busca por conteúdo
+CREATE INDEX IF NOT EXISTS idx_historico_mensagem 
+ON historico(mensagem) 
+WHERE length(mensagem) > 10;
+
+-- Tabela de estatísticas
+CREATE TABLE IF NOT EXISTS estatisticas (
+    id INTEGER PRIMARY KEY,
+    total_clientes INTEGER,
+    total_mensagens INTEGER,
+    ultima_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### 9.7. Backup e Restore
+
+#### 9.7.1. Backup do Banco
+```js
+// backup.js - Estratégia de backup
+createBackup(customName = null, isAutomatic = false) {
+    try {
+        let backupName;
+        const now = new Date();
+        const day = String(now.getDate()).padStart(2, '0');
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const year = String(now.getFullYear()).slice(-2);
+        const hour = String(now.getHours()).padStart(2, '0');
+        const minute = String(now.getMinutes()).padStart(2, '0');
+        
+        if (customName) {
+            backupName = `backup ${customName}`;
+        } else if (isAutomatic) {
+            backupName = `backup auto_${day}-${month}-${year}_${hour}-${minute}`;
+        } else {
+            backupName = `backup ${day}-${month}-${year} ${hour}-${minute}`;
+        }
+
+        const backupPath = path.join(this.backupDir, backupName);
+        fs.mkdirSync(backupPath);
+
+        // Cópia física do arquivo
+        fs.copyFileSync(this.dbFile, path.join(backupPath, 'orbitbot.db'));
+
+        // Log da operação
+        this.addLogEntry('create', { 
+            backupName,
+            type: isAutomatic ? 'automático' : 'manual'
+        });
+
+        return true;
+    } catch (err) {
+        logger.error('Erro ao criar backup', { error: err.message });
+        return false;
+    }
+}
+```
+
+#### 9.7.2. Restore do Banco
+```js
+restoreBackup(backupName) {
+    try {
+        const backupPath = path.join(this.backupDir, backupName);
+        
+        if (!fs.existsSync(backupPath)) {
+            throw new Error(`Backup não encontrado: ${backupName}`);
+        }
+
+        const dbFile = path.join(backupPath, 'orbitbot.db');
+        if (!fs.existsSync(dbFile)) {
+            throw new Error('Arquivo do banco de dados não encontrado no backup');
+        }
+
+        // Restaura o arquivo
+        fs.copyFileSync(dbFile, this.dbFile);
+
+        this.addLogEntry('restore', { backupName });
+        return true;
+    } catch (err) {
+        logger.error('Erro ao restaurar backup', { 
+            error: err.message,
+            backupName
+        });
+        return false;
+    }
+}
+```
+
+#### 9.7.3. Verificação de Integridade do Backup
+```js
+async getBackupInfo(backupName) {
+    try {
+        const backupPath = path.join(this.backupDir, backupName);
+        if (!fs.existsSync(backupPath)) {
+            throw new Error(`Backup não encontrado: ${backupName}`);
+        }
+
+        const dbFile = path.join(backupPath, 'orbitbot.db');
+        if (!fs.existsSync(dbFile)) {
+            throw new Error('Arquivo do banco de dados não encontrado no backup');
+        }
+
+        const stats = fs.statSync(dbFile);
+        const dbInfo = await this.getDatabaseInfo(dbFile);
+
+        return {
+            totalClientes: dbInfo.totalClientes,
+            totalMensagens: dbInfo.totalMensagens,
+            size: stats.size,
+            created_at: stats.birthtime.toISOString(),
+            isAutomatic: backupName.includes('auto_')
+        };
+    } catch (err) {
+        logger.error('Erro ao obter informações do backup', { 
+            error: err.message,
+            backupName
+        });
+        return null;
+    }
+}
+```
+
+### 9.8. Monitoramento e Métricas
+
+#### 9.8.1. Métricas do Banco
+```js
+// logger.js - Integração com métricas do banco
+performance: (data) => {
+    const dbPath = path.join(__dirname, '../database/data/orbitbot.db');
+    
+    let totalClientes = 0;
+    let totalMensagens = 0;
+    
+    const db = new sqlite3.Database(dbPath, (err) => {
+        if (err) {
+            console.error('Erro ao conectar ao banco para métricas:', err.message);
+            return;
+        }
+
+        db.get(`
+            SELECT 
+                (SELECT COUNT(*) FROM clientes) as totalClientes,
+                (SELECT COUNT(*) FROM historico) as totalMensagens
+        `, (err, row) => {
+            db.close();
+            if (err) {
+                console.error('Erro ao ler dados do banco:', err.message);
+            } else {
+                totalClientes = row.totalClientes;
+                totalMensagens = row.totalMensagens;
+            }
+
+            console.log('\n=== DADOS DO BANCO ===');
+            console.log(`Total de clientes: ${totalClientes}`);
+            console.log(`Total de mensagens no histórico: ${totalMensagens}`);
+        });
+    });
+}
+```
+
+#### 9.8.2. Queries de Monitoramento
+```sql
+-- Crescimento de clientes por dia
+SELECT 
+    DATE(created_at) as data,
+    COUNT(*) as novos_clientes
+FROM clientes
+GROUP BY DATE(created_at)
+ORDER BY data DESC
+LIMIT 30;
+
+-- Crescimento de mensagens por dia
+SELECT 
+    DATE(created_at) as data,
+    COUNT(*) as mensagens
+FROM historico
+GROUP BY DATE(created_at)
+ORDER BY data DESC
+LIMIT 30;
+
+-- Clientes mais ativos
+SELECT 
+    c.numero,
+    COUNT(h.id) as total_mensagens,
+    MAX(h.created_at) as ultima_mensagem
+FROM clientes c
+JOIN historico h ON c.id = h.cliente_id
+GROUP BY c.id
+ORDER BY total_mensagens DESC
+LIMIT 10;
+
+-- Distribuição de roles
+SELECT 
+    role,
+    COUNT(*) as total
+FROM historico
+GROUP BY role;
+```
+
+### 9.9. Segurança e Validação
+
+#### 9.9.1. Validação de Entrada
+```js
+// Validação de número de telefone
+function validarNumero(numero) {
+    if (!numero || typeof numero !== 'string') {
+        throw new Error('Número inválido');
+    }
+    
+    // Remove caracteres especiais
+    const numeroLimpo = numero.replace(/[^\d]/g, '');
+    
+    if (numeroLimpo.length < 10 || numeroLimpo.length > 15) {
+        throw new Error('Número deve ter entre 10 e 15 dígitos');
+    }
+    
+    return numeroLimpo;
+}
+
+// Validação de mensagem
+function validarMensagem(mensagem) {
+    if (!mensagem || typeof mensagem !== 'string') {
+        throw new Error('Mensagem inválida');
+    }
+    
+    if (mensagem.length > 10000) {
+        throw new Error('Mensagem muito longa (máximo 10.000 caracteres)');
+    }
+    
+    return mensagem.trim();
+}
+
+// Validação de role
+function validarRole(role) {
+    const rolesValidos = ['user', 'assistant'];
+    if (!rolesValidos.includes(role)) {
+        throw new Error(`Role inválido. Valores permitidos: ${rolesValidos.join(', ')}`);
+    }
+    return role;
+}
+```
+
+#### 9.9.2. Sanitização de Queries
+```js
+// Todas as queries usam parâmetros para prevenir SQL injection
+db.run(
+    'INSERT INTO historico (cliente_id, mensagem, role) VALUES (?, ?, ?)',
+    [clienteId, mensagem, role],  // Parâmetros são escapados automaticamente
+    function(err) {
+        // ...
+    }
+);
+```
+
+### 9.10. Troubleshooting do Banco
+
+#### 9.10.1. Problemas Comuns
+```sql
+-- Verificar se o banco está corrompido
+PRAGMA integrity_check;
+
+-- Verificar se os índices estão válidos
+PRAGMA index_list(historico);
+
+-- Verificar estatísticas do banco
+PRAGMA stats;
+
+-- Verificar configurações
+PRAGMA journal_mode;
+PRAGMA synchronous;
+PRAGMA cache_size;
+```
+
+#### 9.10.2. Comandos de Manutenção
+```sql
+-- Otimizar o banco (VACUUM)
+VACUUM;
+
+-- Reconstruir índices
+REINDEX;
+
+-- Analisar tabelas para otimização
+ANALYZE;
+
+-- Verificar e reparar integridade
+PRAGMA quick_check;
+PRAGMA integrity_check;
+```
+
+#### 9.10.3. Scripts de Recuperação
+```js
+// Recuperação de backup automática
+async function recuperarBancoAutomatico() {
+    try {
+        const backups = backupManager.listBackups();
+        if (backups.length === 0) {
+            throw new Error('Nenhum backup disponível');
+        }
+        
+        // Usa o backup mais recente
+        const backupMaisRecente = backups[0];
+        const sucesso = backupManager.restoreBackup(backupMaisRecente);
+        
+        if (sucesso) {
+            logger.info('Banco recuperado automaticamente', { backup: backupMaisRecente });
+            return true;
+        } else {
+            throw new Error('Falha na restauração automática');
+        }
+    } catch (err) {
+        logger.error('Erro na recuperação automática', { error: err.message });
+        return false;
+    }
+}
+```
+
+---
+
+## 10. Próximos Blocos
+
+- **Fila de Mensagens**: Algoritmo, concorrência, starvation, deadlocks, retries exponenciais
+- **Sistema de IA**: Prompt engineering, adaptação dinâmica, personalidades compostas, contexto
+- **Plugins**: API avançada, hooks, middleware, exemplos complexos
+- **Sistema de Áudio**: Integração Python, estratégias de melhoria, timeouts, fallbacks
+- **Backup**: Atomicidade, logs estruturados, recovery automático
+- **Logs**: Formato, rotação, integração externa, alertas
+- **Tratamento de Erros**: Propagação, auto-recuperação, circuit breaker
+- **Testes**: Unitários, integração, stress, coverage
+- **Performance**: Benchmarks, profiling, tuning, escalabilidade
+- **Segurança**: Validação, autenticação, controle de acesso
+- **Extensibilidade**: Padrões, anti-patterns, exemplos avançados
+- **APIs Externas**: Contratos, versionamento, fallback, limites
+- **DevOps**: Scripts, CI/CD, rollback, observabilidade
+
+---
+
+## 11. Sistema de Fila de Mensagens
+
+### 11.1. Arquitetura da Fila
+
+O sistema de fila do OrbitBot é baseado em **EventEmitter** e implementa um padrão **Producer-Consumer** com processamento assíncrono:
+
+### Algoritmo de Processamento da Fila
+
+```mermaid
+graph TD
+    A[Nova Mensagem] --> B[Validação]
+    B --> C{Valida?}
+    C -->|Não| D[Rejeita]
+    C -->|Sim| E[Adiciona à Fila]
+    E --> F[Emit Event: process]
+    F --> G[Processa Mensagem]
+    G --> H{Sucesso?}
+    H -->|Sim| I[Remove da Fila]
+    H -->|Não| J[Retry Logic]
+    J --> K{Retries < Max?}
+    K -->|Sim| L[Backoff Delay]
+    L --> M[Re-adiciona à Fila]
+    K -->|Não| N[Emit Event: error]
+    M --> F
+```
+
+### Estados da Mensagem
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending: Adicionada
+    Pending --> Processing: Processada
+    Processing --> Success: Sucesso
+    Processing --> Failed: Erro
+    Failed --> Retrying: Retry < Max
+    Retrying --> Processing: Re-processada
+    Failed --> [*]: Retry >= Max
+    Success --> [*]: Finalizada
+```
+
+### Estratégia de Retry com Backoff Exponencial
+
+```mermaid
+graph LR
+    A[Erro] --> B[Retry 1: 1s]
+    B --> C[Erro] --> D[Retry 2: 2s]
+    D --> E[Erro] --> F[Retry 3: 4s]
+    F --> G[Erro] --> H[Falha Final]
+    B --> I[Sucesso]
+    D --> I
+    F --> I
+```
+
+### 11.2. Implementação da Fila
+
+```js
+// src/queue.js
+const EventEmitter = require('events');
+
+class MessageQueue extends EventEmitter {
+    constructor() {
+        super();
+        this.queue = [];
+        this.processing = false;
+        this.maxRetries = 3;
+        this.retryDelay = 1000;
+        this.maxConcurrent = 1; // Processamento sequencial
+        this.currentProcessing = 0;
+        this.stats = {
+            totalProcessed: 0,
+            totalErrors: 0,
+            avgProcessingTime: 0,
+            queueSize: 0
+        };
+    }
+
+    addMessage(message) {
+        const queueItem = {
+            message,
+            retries: 0,
+            timestamp: Date.now(),
+            id: this.generateMessageId()
+        };
+
+        this.queue.push(queueItem);
+        this.stats.queueSize = this.queue.length;
+
+        logger.queue('Mensagem adicionada à fila', {
+            messageId: queueItem.id,
+            queueSize: this.queue.length,
+            from: message.from
+        });
+
+        if (!this.processing) {
+            this.processQueue();
+        }
+    }
+
+    async processQueue() {
+        if (this.processing) return;
+        this.processing = true;
+
+        logger.queue('Iniciando processamento da fila', {
+            queueSize: this.queue.length
+        });
+
+        while (this.hasMessages() && this.currentProcessing < this.maxConcurrent) {
+            const item = this.getNextMessage();
+            if (!item) break;
+
+            this.currentProcessing++;
+            this.processMessage(item);
+        }
+
+        this.processing = false;
+    }
+
+    async processMessage(item) {
+        const startTime = Date.now();
+        
+        try {
+            logger.queue('Processando mensagem', {
+                messageId: item.id,
+                retries: item.retries,
+                from: item.message.from
+            });
+
+            await this.emit('process', item.message);
+            
+            // Sucesso
+            const processingTime = Date.now() - startTime;
+            this.stats.totalProcessed++;
+            this.stats.avgProcessingTime = 
+                (this.stats.avgProcessingTime * (this.stats.totalProcessed - 1) + processingTime) / this.stats.totalProcessed;
+            
+            logger.queue('Mensagem processada com sucesso', {
+                messageId: item.id,
+                processingTime,
+                avgProcessingTime: this.stats.avgProcessingTime
+            });
+
+        } catch (error) {
+            // Erro no processamento
+            this.stats.totalErrors++;
+            
+            logger.error('Erro ao processar mensagem', {
+                messageId: item.id,
+                error: error.message,
+                retries: item.retries,
+                from: item.message.from
+            });
+
+            if (item.retries < this.maxRetries) {
+                // Retry com backoff exponencial
+                item.retries++;
+                const delay = this.calculateRetryDelay(item.retries);
+                
+                logger.queue('Agendando retry', {
+                    messageId: item.id,
+                    retries: item.retries,
+                    delay
+                });
+
+                setTimeout(() => {
+                    this.queue.unshift(item); // Adiciona no início para prioridade
+                    this.stats.queueSize = this.queue.length;
+                    this.processQueue();
+                }, delay);
+            } else {
+                // Máximo de retries atingido
+                this.emit('error', {
+                    message: item.message,
+                    error,
+                    retries: item.retries,
+                    messageId: item.id
                         setTimeout(() => {
                             this.queue.unshift(item); // Adiciona no início para prioridade
                             this.stats.queueSize = this.queue.length;
