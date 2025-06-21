@@ -1,4 +1,4 @@
-# 🛠️ Wiki Técnica OrbitBot (Nível Engenharia)
+**# 🛠️ Wiki Técnica OrbitBot (Nível Engenharia)
 
 > **Manual técnico avançado do OrbitBot: arquitetura, algoritmos, fluxos, decisões e exemplos reais.**
 
@@ -5609,3 +5609,4 @@ class MessageQueue extends EventEmitter {
 
         *Esta documentação técnica foi criada seguindo as melhores práticas de engenharia de software e representa o estado atual do OrbitBot em sua versão 2.0.*
 
+**
